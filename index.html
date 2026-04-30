@@ -3,39 +3,38 @@
 <head>
     <meta charset="utf-8">
 </head>
-<body style="font-family: 'Segoe UI', sans-serif; background-color: #f4f7f9; margin: 0; padding: 20px;">
+<body style="font-family: 'Segoe UI', Tahoma, sans-serif; background: #f0f2f5; margin: 0; padding: 20px;">
     <div style="max-width: 1200px; margin: auto; background: white; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); overflow: hidden;">
         
-        <div style="background: #254061; color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center;">
+        <div style="background: #254061; color: white; padding: 18px 25px; display: flex; justify-content: space-between; align-items: center;">
             <h2 style="margin: 0; font-size: 20px;">Rendimiento y Eficiencia de Flota</h2>
-            <div id="loader" style="display:none; background: #e67e22; padding: 5px 15px; border-radius: 20px; font-size: 12px; font-weight: bold;">Calculando combustible (Plan GO)...</div>
+            <div id="loader" style="display:none; background: #e67e22; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: bold;">Cargando...</div>
         </div>
 
         <div style="padding: 15px 25px; background: #fafafa; border-bottom: 1px solid #eee; display: flex; gap: 15px; align-items: center;">
-            <label style="font-size: 13px; font-weight: bold;">Desde: <input type="date" id="dateStart" style="padding: 6px; border: 1px solid #ccc; border-radius: 4px;"></label>
+            <label style="font-size: 13px; font-weight: bold;">Desde: <input type="date" id="dateStart" style="padding: 5px; border: 1px solid #ccc; border-radius: 4px;"></label>
             <label style="font-size: 13px; font-weight: bold;">Hasta: <input type="date" id="dateEnd" style="padding: 6px; border: 1px solid #ccc; border-radius: 4px;"></label>
             <button id="btnRun" style="background: #254061; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold;">ACTUALIZAR</button>
-            <button id="btnExport" style="background: #27ae60; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; margin-left: 5px;">EXCEL</button>
+            <button id="btnExport" style="background: #27ae60; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold;">EXCEL</button>
         </div>
 
         <table style="width: 100%; border-collapse: collapse; background: white;">
             <thead>
                 <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
-                    <th style="padding: 15px; text-align: left; font-size: 13px; color: #333;">VEHÍCULO / CONDUCTOR</th>
-                    <th style="padding: 15px; text-align: center; font-size: 13px; color: #333;">DISTANCIA (KM)</th>
-                    <th style="padding: 15px; text-align: center; font-size: 13px; color: #333;">COMBUSTIBLE (GAL)</th>
-                    <th style="padding: 15px; text-align: center; font-size: 13px; color: #333;">RALENTÍ (HRS)</th>
-                    <th style="padding: 15px; text-align: center; font-size: 13px; color: #333;">EFICIENCIA</th>
+                    <th style="padding: 15px; text-align: left; font-size: 13px;">VEHÍCULO / CONDUCTOR</th>
+                    <th style="padding: 15px; text-align: center; font-size: 13px;">DISTANCIA (KM)</th>
+                    <th style="padding: 15px; text-align: center; font-size: 13px;">COMBUSTIBLE (GAL)</th>
+                    <th style="padding: 15px; text-align: center; font-size: 13px;">RALENTÍ (HRS)</th>
+                    <th style="padding: 15px; text-align: center; font-size: 13px;">EFICIENCIA</th>
                 </tr>
             </thead>
             <tbody id="resBody">
-                <tr><td colspan="5" style="padding:30px; text-align:center; color:#999;">Presione "Actualizar" para cargar datos...</td></tr>
+                <tr><td colspan="5" style="padding:30px; text-align:center; color:#999;">Haga clic en Actualizar para comenzar</td></tr>
             </tbody>
         </table>
     </div>
 
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
-
     <script>
         geotab.addin.fleetEfficiency = () => {
             return {
@@ -46,11 +45,8 @@
                     
                     document.getElementById("btnRun").addEventListener("click", () => this.fetch(api));
                     document.getElementById("btnExport").addEventListener("click", () => {
-                        const wb = XLSX.utils.table_to_book(document.querySelector("table"));
-                        XLSX.writeFile(wb, "Eficiencia_Flota.xlsx");
+                        XLSX.writeFile(XLSX.utils.table_to_book(document.querySelector("table")), "Eficiencia_Flota.xlsx");
                     });
-
-                    this.fetch(api);
                     callback();
                 },
 
@@ -61,5 +57,94 @@
                     const to = new Date(document.getElementById("dateEnd").value).toISOString();
 
                     try {
-                        // CONSULTA COMPATIBLE CON PLAN GO: Usamos GetFuelUsed
-                        const
+                        // Llamadas mínimas para evitar errores de promesa
+                        const devices = await api.call("Get", { typeName: "Device" });
+                        const users = await api.call("Get", { typeName: "User" });
+                        const trips = await api.call("Get", { typeName: "Trip", search: { fromDate: from, toDate: to } });
+
+                        this.render(devices, users, trips);
+                    } catch (e) {
+                        console.error("Fallo en la llamada al SDK:", e);
+                    } finally {
+                        loader.style.display = "none";
+                    }
+                },
+
+                render(devices, users, trips) {
+                    const body = document.getElementById("resBody");
+                    body.innerHTML = "";
+
+                    // Crear mapa de nombres de usuario
+                    const uMap = {};
+                    users.forEach(u => {
+                        uMap[u.id] = (u.firstName && u.lastName) ? (u.firstName + " " + u.lastName) : (u.name || u.id);
+                    });
+
+                    // Agrupar datos por vehículo
+                    const stats = {};
+                    trips.forEach(t => {
+                        const vId = t.device.id;
+                        const dId = (t.driver && t.driver.id !== "NoDriverId") ? t.driver.id : "Desconocido";
+                        const dName = uMap[dId] || "Desconocido";
+
+                        // FILTRO: Solo procesar si el viaje tuvo movimiento
+                        if (t.distance > 0.01) {
+                            if (!stats[vId]) stats[vId] = { d: 0, r: 0, f: 0, drvs: {} };
+                            if (!stats[vId].drvs[dName]) stats[vId].drvs[dName] = { d: 0, r: 0, f: 0 };
+
+                            let rSecs = 0;
+                            if (t.idlingDuration && typeof t.idlingDuration === 'string') {
+                                const p = t.idlingDuration.split(':');
+                                rSecs = p.length === 3 ? (+p[0]*3600 + +p[1]*60 + +p[2]) : 0;
+                            } else { rSecs = t.idlingDuration || 0; }
+
+                            // Acumular
+                            stats[vId].d += t.distance;
+                            stats[vId].r += rSecs;
+                            stats[vId].f += (t.fuelUsed || 0);
+
+                            stats[vId].drvs[dName].d += t.distance;
+                            stats[vId].drvs[dName].r += rSecs;
+                            stats[vId].drvs[dName].f += (t.fuelUsed || 0);
+                        }
+                    });
+
+                    devices.forEach(dev => {
+                        const s = stats[dev.id];
+                        if (!s || s.d < 0.1) return; // No mostrar vehículos sin uso
+
+                        const gal = s.f / 3.78541;
+                        const eff = gal > 0 ? (s.d / gal).toFixed(2) : "0.00";
+
+                        // Fila Vehículo
+                        body.innerHTML += `
+                            <tr style="background: #eef2f7; font-weight: bold; border-left: 5px solid #254061; border-bottom: 1px solid #dee2e6;">
+                                <td style="padding: 12px;">🚚 ${dev.name}</td>
+                                <td style="text-align:center;">${s.d.toFixed(1)}</td>
+                                <td style="text-align:center;">${gal.toFixed(1)}</td>
+                                <td style="text-align:center;">${(s.r / 3600).toFixed(1)}</td>
+                                <td style="text-align:center; color: #27ae60;">${eff} km/G</td>
+                            </tr>`;
+
+                        // Filas Conductores (Solo los que sí manejaron)
+                        Object.keys(s.drvs).forEach(name => {
+                            const d = s.drvs[name];
+                            if (d.d > 0.01) {
+                                const dGal = d.f / 3.78541;
+                                body.innerHTML += `
+                                    <tr style="background: white; border-bottom: 1px solid #eee; color: #555; font-size: 13px;">
+                                        <td style="padding: 10px 10px 10px 45px;">👤 ${name}</td>
+                                        <td style="text-align:center;">${d.d.toFixed(1)}</td>
+                                        <td style="text-align:center;">${dGal.toFixed(1)}</td>
+                                        <td style="text-align:center;">${(d.r / 3600).toFixed(1)}</td>
+                                        <td style="text-align:center;">--</td>
+                                    </tr>`;
+                            }
+                        });
+                    });
+                }
+            };
+        };
+    </script>
+</body>
+</html>
