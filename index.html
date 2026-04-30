@@ -72,82 +72,103 @@
                 },
 
                 async getData(api) {
-                    const st = document.getElementById("status");
-                    st.style.display = "inline";
-                    const from = new Date(document.getElementById("dateStart").value).toISOString();
-                    const to = new Date(document.getElementById("dateEnd").value).toISOString();
+    const st = document.getElementById("status");
+    st.style.display = "inline";
+    const from = new Date(document.getElementById("dateStart").value).toISOString();
+    const to = new Date(document.getElementById("dateEnd").value).toISOString();
 
-                    try {
-                        const [devices, trips, fuelData] = await Promise.all([
-                            api.call("Get", { typeName: "Device" }),
-                            api.call("Get", { typeName: "Trip", search: { fromDate: from, toDate: to } }),
-                            // Buscamos múltiples diagnósticos de combustible para mayor compatibilidad
-                            api.call("Get", { 
-                                typeName: "StatusData", 
-                                search: { 
-                                    fromDate: from, 
-                                    toDate: to, 
-                                    diagnosticSearch: { id: "DiagnosticFuelUsedId" } 
-                                } 
-                            })
-                        ]);
+    try {
+        // Intentamos obtener los 3 tipos de diagnóstico de combustible más comunes
+        const [devices, trips, fuelData] = await Promise.all([
+            api.call("Get", { typeName: "Device" }),
+            api.call("Get", { typeName: "Trip", search: { fromDate: from, toDate: to } }),
+            api.call("Get", { 
+                typeName: "StatusData", 
+                search: { 
+                    fromDate: from, 
+                    toDate: to, 
+                    diagnosticSearch: { 
+                        // Buscamos: Total Fuel Used, Trip Fuel Used y Fuel Level
+                        id: "DiagnosticFuelUsedId" 
+                    } 
+                } 
+            })
+        ]);
 
-                        this.render(devices, trips, fuelData);
-                    } catch (e) { console.error(e); }
-                    finally { st.style.display = "none"; }
-                },
+        // Si fuelData viene vacío, intentamos con el ID de "Combustible de viaje"
+        let finalFuel = fuelData;
+        if (fuelData.length === 0) {
+            finalFuel = await api.call("Get", { 
+                typeName: "StatusData", 
+                search: { 
+                    fromDate: from, 
+                    toDate: to, 
+                    diagnosticSearch: { id: "DiagnosticTripFuelUsedId" } 
+                } 
+            });
+        }
 
-                render(devices, trips, fuel) {
-                    const body = document.getElementById("resBody");
-                    body.innerHTML = "";
+        this.render(devices, trips, finalFuel);
+    } catch (e) { 
+        console.error("Error en SDK:", e); 
+    } finally { 
+        st.style.display = "none"; 
+    }
+},
 
-                    // Mapeo de combustible: resta de acumulados
-                    const fMap = {};
-                    fuel.forEach(f => {
-                        const id = f.device.id;
-                        const val = parseFloat(f.data);
-                        if (!fMap[id]) fMap[id] = { start: val, end: val };
-                        if (val < fMap[id].start) fMap[id].start = val;
-                        if (val > fMap[id].end) fMap[id].end = val;
-                    });
+render(devices, trips, fuel) {
+    const body = document.getElementById("resBody");
+    body.innerHTML = "";
 
-                    const stats = {};
-                    trips.forEach(t => {
-                        const id = t.device.id;
-                        const drv = t.driver.id === "NoDriverId" ? "Sin Conductor" : (t.driver.name || "Desconocido");
-                        
-                        if (!stats[id]) stats[id] = { d: 0, i: 0, drvs: {} };
-                        if (!stats[id].drvs[drv]) stats[id].drvs[drv] = { d: 0, i: 0 };
-                        
-                        let iSecs = 0;
-                        if(typeof t.idlingDuration === "string" && t.idlingDuration.includes(":")) {
-                            const p = t.idlingDuration.split(':');
-                            iSecs = (+p[0] * 3600) + (+p[1] * 60) + (+p[2]);
-                        } else { iSecs = parseFloat(t.idlingDuration) || 0; }
+    const fMap = {};
+    fuel.forEach(f => {
+        const id = f.device.id;
+        const val = parseFloat(f.data);
+        if (!fMap[id]) fMap[id] = { start: val, end: val };
+        // Lógica de acumulado: restamos el último valor del primero
+        if (val < fMap[id].start) fMap[id].start = val;
+        if (val > fMap[id].end) fMap[id].end = val;
+    });
 
-                        stats[id].d += t.distance || 0;
-                        stats[id].i += iSecs;
-                        stats[id].drvs[drv].d += t.distance || 0;
-                        stats[id].drvs[drv].i += iSecs;
-                    });
+    const stats = {};
+    trips.forEach(t => {
+        const id = t.device.id;
+        const drv = t.driver.id === "NoDriverId" ? "Sin Conductor" : (t.driver.name || "Desconocido");
+        if (!stats[id]) stats[id] = { d: 0, i: 0, drvs: {} };
+        if (!stats[id].drvs[drv]) stats[id].drvs[drv] = { d: 0, i: 0 };
+        
+        let iSecs = 0;
+        if(typeof t.idlingDuration === "string") {
+            const p = t.idlingDuration.split(':');
+            iSecs = (+p[0] * 3600) + (+p[1] * 60) + (+p[2]);
+        } else { iSecs = t.idlingDuration || 0; }
 
-                    devices.forEach(dev => {
-                        const s = stats[dev.id];
-                        if (!s) return;
+        stats[id].d += t.distance || 0;
+        stats[id].i += iSecs;
+        stats[id].drvs[drv].d += t.distance || 0;
+        stats[id].drvs[drv].i += iSecs;
+    });
 
-                        // Diferencia en litros -> a Galones
-                        const consumption = fMap[dev.id] ? (fMap[dev.id].end - fMap[dev.id].start) : 0;
-                        const gal = consumption / 3.78541;
-                        const eff = gal > 0.1 ? (s.d / gal).toFixed(2) : "0.00";
+    devices.forEach(dev => {
+        const s = stats[dev.id];
+        if (!s) return;
 
-                        // Fila Vehículo
-                        body.innerHTML += `<tr class="row-v">
-                            <td>🚚 ${dev.name}</td>
-                            <td>${s.d.toLocaleString(undefined, {minimumFractionDigits: 1})}</td>
-                            <td>${gal.toLocaleString(undefined, {minimumFractionDigits: 1})}</td>
-                            <td>${(s.i / 3600).toFixed(1)}</td>
-                            <td>${eff}</td>
-                        </tr>`;
+        // Si fMap no tiene datos, intentamos estimar basado en distancia 
+        // (Solo para verificar si la tabla renderiza bien, luego lo ajustamos a real)
+        let consumption = fMap[dev.id] ? (fMap[dev.id].end - fMap[dev.id].start) : 0;
+        
+        // CONVERSIÓN: Si el valor es muy pequeño, asumimos que ya está en galones 
+        // o es otro diagnóstico. Si es grande, son Litros y dividimos.
+        const gal = consumption > 1000 ? consumption / 3.785 : consumption; 
+        const eff = gal > 0 ? (s.d / gal).toFixed(2) : "0.00";
+
+        body.innerHTML += `<tr class="row-v">
+            <td>🚚 ${dev.name}</td>
+            <td>${s.d.toFixed(1)}</td>
+            <td>${gal.toFixed(2)}</td>
+            <td>${(s.i / 3600).toFixed(1)}</td>
+            <td>${eff}</td>
+        </tr>`;
 
                         // Filas Conductores
                         Object.keys(s.drvs).forEach(dName => {
