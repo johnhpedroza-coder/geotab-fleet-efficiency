@@ -2,49 +2,29 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; }
-        .card { background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow: hidden; }
-        .header { background: #254061; color: white; padding: 15px 20px; font-size: 20px; display: flex; justify-content: space-between; align-items: center; }
-        .toolbar { padding: 15px 20px; background: #ffffff; border-bottom: 1px solid #eee; display: flex; gap: 15px; align-items: center; }
-        
-        table { width: 100%; border-collapse: collapse; }
-        th { background: #f8f9fa; padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6; color: #495057; font-size: 13px; text-transform: uppercase; }
-        td { padding: 10px 12px; border-bottom: 1px solid #f1f1f1; font-size: 14px; }
-        
-        .row-v { background: #f8f9ff; font-weight: bold; color: #254061; }
-        .row-d { color: #6c757d; font-style: italic; }
-        .indent { padding-left: 35px !important; }
-        
-        .btn { padding: 8px 18px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; transition: 0.3s; }
-        .btn-update { background: #254061; color: white; }
-        .btn-update:hover { background: #1a2d45; }
-        .btn-excel { background: #27ae60; color: white; }
-        
-        #status { font-weight: bold; color: #e67e22; margin-left: 10px; display: none; }
-        input[type="date"] { border: 1px solid #ced4da; padding: 6px; border-radius: 4px; }
-    </style>
 </head>
-<body>
-    <div class="card">
-        <div class="header">
-            <span>Rendimiento y Eficiencia de Flota</span>
-            <div id="status">⌛ Procesando...</div>
+<body style="font-family: sans-serif; background: #f4f7f9; margin: 0; padding: 20px;">
+    <div id="app-container" style="background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow: hidden;">
+        <div style="background: #254061; color: white; padding: 15px 20px; font-size: 20px; display: flex; justify-content: space-between; align-items: center;">
+            <span>Eficiencia y Rendimiento de Flota</span>
+            <div id="status" style="font-size: 14px; background: rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 4px; display: none;">Procesando datos...</div>
         </div>
-        <div class="toolbar">
-            <label>Desde: <input type="date" id="dateStart"></label>
-            <label>Hasta: <input type="date" id="dateEnd"></label>
-            <button id="btnRun" class="btn btn-update">Actualizar Reporte</button>
-            <button id="btnExport" class="btn btn-excel">Exportar Excel</button>
+        
+        <div style="padding: 15px; border-bottom: 1px solid #eee; display: flex; gap: 10px; align-items: center; background: #fafafa;">
+            <label style="font-size: 14px; font-weight: bold;">Desde: <input type="date" id="dateStart" style="padding: 5px; border: 1px solid #ccc; border-radius: 4px;"></label>
+            <label style="font-size: 14px; font-weight: bold;">Hasta: <input type="date" id="dateEnd" style="padding: 5px; border: 1px solid #ccc; border-radius: 4px;"></label>
+            <button id="btnRun" style="background: #254061; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold;">Actualizar</button>
+            <button id="btnExport" style="background: #27ae60; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold;">Excel</button>
         </div>
-        <table>
+
+        <table style="width: 100%; border-collapse: collapse;">
             <thead>
-                <tr>
-                    <th>Vehículo / Conductor</th>
-                    <th>Distancia (km)</th>
-                    <th>Combustible (Gal)</th>
-                    <th>Ralentí (Hrs)</th>
-                    <th>Eficiencia (km/Gal)</th>
+                <tr style="background: #f8f9fa;">
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6;">Vehículo / Conductor</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6;">Distancia (km)</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6;">Combustible (Gal)</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6;">Ralentí (Hrs)</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6;">Eficiencia (km/Gal)</th>
                 </tr>
             </thead>
             <tbody id="resBody"></tbody>
@@ -60,126 +40,95 @@
                     const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
                     document.getElementById("dateStart").value = firstDay.toISOString().split('T')[0];
                     document.getElementById("dateEnd").value = now.toISOString().split('T')[0];
-
-                    document.getElementById("btnRun").addEventListener("click", () => this.getData(api));
+                    
+                    document.getElementById("btnRun").addEventListener("click", () => this.execute(api));
                     document.getElementById("btnExport").addEventListener("click", () => {
                         const wb = XLSX.utils.table_to_book(document.querySelector("table"));
-                        XLSX.writeFile(wb, "Reporte_Eficiencia_Geotab.xlsx");
+                        XLSX.writeFile(wb, "Eficiencia_Flota.xlsx");
                     });
 
-                    this.getData(api);
+                    this.execute(api);
                     callback();
                 },
 
-                async getData(api) {
-    const st = document.getElementById("status");
-    st.style.display = "inline";
-    const from = new Date(document.getElementById("dateStart").value).toISOString();
-    const to = new Date(document.getElementById("dateEnd").value).toISOString();
+                async execute(api) {
+                    const st = document.getElementById("status");
+                    st.style.display = "block";
+                    const from = new Date(document.getElementById("dateStart").value).toISOString();
+                    const to = new Date(document.getElementById("dateEnd").value).toISOString();
 
-    try {
-        // Intentamos obtener los 3 tipos de diagnóstico de combustible más comunes
-        const [devices, trips, fuelData] = await Promise.all([
-            api.call("Get", { typeName: "Device" }),
-            api.call("Get", { typeName: "Trip", search: { fromDate: from, toDate: to } }),
-            api.call("Get", { 
-                typeName: "StatusData", 
-                search: { 
-                    fromDate: from, 
-                    toDate: to, 
-                    diagnosticSearch: { 
-                        // Buscamos: Total Fuel Used, Trip Fuel Used y Fuel Level
-                        id: "DiagnosticFuelUsedId" 
-                    } 
-                } 
-            })
-        ]);
+                    try {
+                        const [devices, trips, fuelData] = await Promise.all([
+                            api.call("Get", { typeName: "Device" }),
+                            api.call("Get", { typeName: "Trip", search: { fromDate: from, toDate: to } }),
+                            api.call("Get", { 
+                                typeName: "StatusData", 
+                                search: { fromDate: from, toDate: to, diagnosticSearch: { id: "DiagnosticFuelUsedId" } } 
+                            })
+                        ]);
 
-        // Si fuelData viene vacío, intentamos con el ID de "Combustible de viaje"
-        let finalFuel = fuelData;
-        if (fuelData.length === 0) {
-            finalFuel = await api.call("Get", { 
-                typeName: "StatusData", 
-                search: { 
-                    fromDate: from, 
-                    toDate: to, 
-                    diagnosticSearch: { id: "DiagnosticTripFuelUsedId" } 
-                } 
-            });
-        }
+                        this.render(devices, trips, fuelData);
+                    } catch (e) { console.error(e); }
+                    finally { st.style.display = "none"; }
+                },
 
-        this.render(devices, trips, finalFuel);
-    } catch (e) { 
-        console.error("Error en SDK:", e); 
-    } finally { 
-        st.style.display = "none"; 
-    }
-},
+                render(devices, trips, fuel) {
+                    const body = document.getElementById("resBody");
+                    body.innerHTML = "";
 
-render(devices, trips, fuel) {
-    const body = document.getElementById("resBody");
-    body.innerHTML = "";
+                    // Organizar combustible: Agarrar el valor más bajo y más alto por dispositivo
+                    const fMap = {};
+                    fuel.forEach(f => {
+                        const id = f.device.id;
+                        const val = parseFloat(f.data);
+                        if (!fMap[id]) fMap[id] = { s: val, e: val };
+                        if (val < fMap[id].s) fMap[id].s = val;
+                        if (val > fMap[id].e) fMap[id].e = val;
+                    });
 
-    const fMap = {};
-    fuel.forEach(f => {
-        const id = f.device.id;
-        const val = parseFloat(f.data);
-        if (!fMap[id]) fMap[id] = { start: val, end: val };
-        // Lógica de acumulado: restamos el último valor del primero
-        if (val < fMap[id].start) fMap[id].start = val;
-        if (val > fMap[id].end) fMap[id].end = val;
-    });
+                    const stats = {};
+                    trips.forEach(t => {
+                        const id = t.device.id;
+                        const drv = t.driver.id === "NoDriverId" ? "Desconocido" : (t.driver.name || "Desconocido");
+                        if (!stats[id]) stats[id] = { d: 0, i: 0, drvs: {} };
+                        if (!stats[id].drvs[drv]) stats[id].drvs[drv] = { d: 0, i: 0 };
+                        
+                        let iSecs = 0;
+                        if(typeof t.idlingDuration === "string") {
+                            const p = t.idlingDuration.split(':');
+                            iSecs = p.length === 3 ? (+p[0]*3600 + +p[1]*60 + +p[2]) : 0;
+                        } else { iSecs = t.idlingDuration || 0; }
 
-    const stats = {};
-    trips.forEach(t => {
-        const id = t.device.id;
-        const drv = t.driver.id === "NoDriverId" ? "Sin Conductor" : (t.driver.name || "Desconocido");
-        if (!stats[id]) stats[id] = { d: 0, i: 0, drvs: {} };
-        if (!stats[id].drvs[drv]) stats[id].drvs[drv] = { d: 0, i: 0 };
-        
-        let iSecs = 0;
-        if(typeof t.idlingDuration === "string") {
-            const p = t.idlingDuration.split(':');
-            iSecs = (+p[0] * 3600) + (+p[1] * 60) + (+p[2]);
-        } else { iSecs = t.idlingDuration || 0; }
+                        stats[id].d += t.distance || 0;
+                        stats[id].i += iSecs;
+                        stats[id].drvs[drv].d += t.distance || 0;
+                        stats[id].drvs[drv].i += iSecs;
+                    });
 
-        stats[id].d += t.distance || 0;
-        stats[id].i += iSecs;
-        stats[id].drvs[drv].d += t.distance || 0;
-        stats[id].drvs[drv].i += iSecs;
-    });
+                    devices.forEach(dev => {
+                        const s = stats[dev.id];
+                        if (!s) return;
 
-    devices.forEach(dev => {
-        const s = stats[dev.id];
-        if (!s) return;
+                        // Consumo real (Ltrs a Galones)
+                        const consLtrs = fMap[dev.id] ? (fMap[dev.id].e - fMap[dev.id].s) : 0;
+                        const gal = consLtrs / 3.78541;
+                        const eff = gal > 0 ? (s.d / gal).toFixed(2) : "0.00";
 
-        // Si fMap no tiene datos, intentamos estimar basado en distancia 
-        // (Solo para verificar si la tabla renderiza bien, luego lo ajustamos a real)
-        let consumption = fMap[dev.id] ? (fMap[dev.id].end - fMap[dev.id].start) : 0;
-        
-        // CONVERSIÓN: Si el valor es muy pequeño, asumimos que ya está en galones 
-        // o es otro diagnóstico. Si es grande, son Litros y dividimos.
-        const gal = consumption > 1000 ? consumption / 3.785 : consumption; 
-        const eff = gal > 0 ? (s.d / gal).toFixed(2) : "0.00";
-
-        body.innerHTML += `<tr class="row-v">
-            <td>🚚 ${dev.name}</td>
-            <td>${s.d.toFixed(1)}</td>
-            <td>${gal.toFixed(2)}</td>
-            <td>${(s.i / 3600).toFixed(1)}</td>
-            <td>${eff}</td>
-        </tr>`;
+                        // Fila Vehículo
+                        body.innerHTML += `<tr style="background: #f1f4f8; font-weight: bold; border-left: 4px solid #254061;">
+                            <td style="padding: 10px;">🚚 ${dev.name}</td>
+                            <td>${s.d.toFixed(1)}</td><td>${gal.toFixed(1)}</td>
+                            <td>${(s.i / 3600).toFixed(1)}</td><td>${eff}</td>
+                        </tr>`;
 
                         // Filas Conductores
                         Object.keys(s.drvs).forEach(dName => {
                             const d = s.drvs[dName];
                             const dGal = s.d > 0 ? gal * (d.d / s.d) : 0;
-                            body.innerHTML += `<tr class="row-d">
-                                <td class="indent">👤 ${dName}</td>
-                                <td>${d.d.toLocaleString(undefined, {minimumFractionDigits: 1})}</td>
-                                <td>${dGal.toLocaleString(undefined, {minimumFractionDigits: 1})}</td>
-                                <td>${(d.i / 3600).toFixed(1)}</td>
-                                <td>--</td>
+                            body.innerHTML += `<tr style="color: #666; font-size: 0.9em;">
+                                <td style="padding: 8px 8px 8px 40px;">👤 ${dName}</td>
+                                <td>${d.d.toFixed(1)}</td><td>${dGal.toFixed(1)}</td>
+                                <td>${(d.i / 3600).toFixed(1)}</td><td>--</td>
                             </tr>`;
                         });
                     });
