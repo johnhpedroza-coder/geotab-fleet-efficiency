@@ -4,17 +4,18 @@
     <meta charset="utf-8">
 </head>
 <body style="font-family: 'Segoe UI', sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px;">
-    <div style="max-width: 1200px; margin: auto; background: white; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); overflow: hidden;">
+    <div style="max-width: 1200px; margin: auto; background: white; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); overflow: hidden;">
         
         <div style="background: #254061; color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center;">
             <h2 style="margin: 0; font-size: 20px;">📊 Rendimiento y Eficiencia de Flota</h2>
-            <div id="loader" style="display:none; background: #e67e22; padding: 5px 15px; border-radius: 20px; font-size: 12px; font-weight: bold;">CONSULTANDO...</div>
+            <div id="loader" style="display:none; background: #e67e22; padding: 5px 15px; border-radius: 20px; font-size: 12px; font-weight: bold;">BUSCANDO DATOS...</div>
         </div>
 
         <div style="padding: 15px 25px; background: #fafafa; border-bottom: 1px solid #eee; display: flex; gap: 15px; align-items: center;">
-            <label style="font-size: 13px; font-weight: bold;">Desde: <input type="date" id="dateStart" style="padding: 6px; border: 1px solid #ccc; border-radius: 4px;"></label>
-            <label style="font-size: 13px; font-weight: bold;">Hasta: <input type="date" id="dateEnd" style="padding: 6px; border: 1px solid #ccc; border-radius: 4px;"></label>
+            <label style="font-size: 13px; font-weight: bold;">Desde: <input type="date" id="dateStart" style="padding: 6px; border: 1px solid #ccc;"></label>
+            <label style="font-size: 13px; font-weight: bold;">Hasta: <input type="date" id="dateEnd" style="padding: 6px; border: 1px solid #ccc;"></label>
             <button id="btnRun" style="background: #254061; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold;">ACTUALIZAR</button>
+            <span id="debugInfo" style="font-size: 11px; color: #888;"></span>
         </div>
 
         <table style="width: 100%; border-collapse: collapse; background: white;">
@@ -28,7 +29,7 @@
                 </tr>
             </thead>
             <tbody id="resBody">
-                <tr><td colspan="5" style="padding:40px; text-align:center; color:#999;">Haga clic en Actualizar para obtener datos.</td></tr>
+                <tr><td colspan="5" style="padding:40px; text-align:center; color:#999;">Presione Actualizar para sincronizar con MyGeotab.</td></tr>
             </tbody>
         </table>
     </div>
@@ -41,36 +42,41 @@
                     document.getElementById("dateStart").value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
                     document.getElementById("dateEnd").value = now.toISOString().split('T')[0];
                     document.getElementById("btnRun").addEventListener("click", () => this.execute(api));
-                    this.execute(api);
                     callback();
                 },
 
                 async execute(api) {
                     const loader = document.getElementById("loader");
+                    const debug = document.getElementById("debugInfo");
                     loader.style.display = "block";
+                    debug.innerText = "Consultando...";
+                    
                     const from = new Date(document.getElementById("dateStart").value).toISOString();
                     const to = new Date(document.getElementById("dateEnd").value).toISOString();
 
                     try {
-                        // Llamadas universales (Get)
+                        // 1. Obtener Viajes, Dispositivos y Usuarios
                         const [devices, users, trips] = await Promise.all([
                             api.call("Get", { typeName: "Device" }),
                             api.call("Get", { typeName: "User" }),
                             api.call("Get", { typeName: "Trip", search: { fromDate: from, toDate: to } })
                         ]);
 
-                        // Intentar obtener combustible solo si el plan lo permite
-                        let fuel = [];
-                        try {
-                            fuel = await api.call("Get", { 
-                                typeName: "StatusData", 
-                                search: { fromDate: from, toDate: to, diagnosticSearch: { id: "DiagnosticFuelUsedId" } } 
-                            });
-                        } catch (e) { console.warn("Combustible no disponible en este plan."); }
+                        // 2. Obtener combustible (StatusData) con un filtro más amplio
+                        const fuel = await api.call("Get", {
+                            typeName: "StatusData",
+                            search: {
+                                fromDate: from,
+                                toDate: to,
+                                diagnosticSearch: { id: "DiagnosticFuelUsedId" }
+                            }
+                        });
 
+                        debug.innerText = `Registros de combustible: ${fuel.length}`;
                         this.render(devices, users, trips, fuel);
                     } catch (e) {
-                        console.error("Error en SDK:", e);
+                        console.error(e);
+                        debug.innerText = "Error en la consulta.";
                     } finally {
                         loader.style.display = "none";
                     }
@@ -81,45 +87,42 @@
                     body.innerHTML = "";
 
                     const uMap = {};
-                    users.forEach(u => {
-                        const name = ((u.firstName || "") + " " + (u.lastName || "")).trim();
-                        uMap[u.id] = name || u.name;
-                    });
+                    users.forEach(u => { uMap[u.id] = ((u.firstName || "") + " " + (u.lastName || "")).trim() || u.name; });
 
                     const fMap = {};
-                    if (fuel && fuel.length > 0) {
-                        fuel.forEach(f => {
-                            const id = f.device.id;
-                            const val = parseFloat(f.data);
-                            if (!fMap[id]) fMap[id] = { s: val, e: val };
-                            if (val < fMap[id].s) fMap[id].s = val;
-                            if (val > fMap[id].e) fMap[id].e = val;
-                        });
-                    }
+                    fuel.forEach(f => {
+                        const id = f.device.id;
+                        const val = parseFloat(f.data);
+                        if (!fMap[id]) fMap[id] = { s: val, e: val };
+                        if (val < fMap[id].s) fMap[id].s = val;
+                        if (val > fMap[id].e) fMap[id].e = val;
+                    });
 
                     const stats = {};
                     trips.forEach(t => {
                         const vId = t.device.id;
                         const dId = t.driver ? t.driver.id : "NoDriverId";
-                        const dName = dId === "NoDriverId" ? "Desconocido" : (uMap[dId] || "Desconocido");
+                        const dName = (dId === "NoDriverId" || !uMap[dId]) ? "Desconocido" : uMap[dId];
 
-                        if (t.distance > 0.05) {
-                            if (!stats[vId]) stats[vId] = { d: 0, r: 0, fTrip: 0, drvs: {} };
-                            if (!stats[vId].drvs[dName]) stats[vId].drvs[dName] = { d: 0, r: 0, fTrip: 0 };
+                        // FILTRO: Solo conductores con distancia real
+                        if (t.distance > 0.1) {
+                            if (!stats[vId]) stats[vId] = { d: 0, r: 0, fObj: 0, drvs: {} };
+                            if (!stats[vId].drvs[dName]) stats[vId].drvs[dName] = { d: 0, r: 0, fObj: 0 };
 
-                            let rSecs = 0;
+                            let secs = 0;
                             const dur = t.idlingDuration ? t.idlingDuration.toString() : "";
                             if(dur.includes(":")) {
                                 const p = dur.split(':');
-                                rSecs = (+p[0]*3600 + +p[1]*60 + +p[2]);
-                            } else { rSecs = parseFloat(dur) || 0; }
+                                secs = (+p[0]*3600 + +p[1]*60 + +p[2]);
+                            } else { secs = parseFloat(dur) || 0; }
 
                             stats[vId].d += t.distance;
-                            stats[vId].r += rSecs;
-                            stats[vId].fTrip += (t.fuelUsed || 0);
+                            stats[vId].r += secs;
+                            stats[vId].fObj += (t.fuelUsed || 0); // Fallback secundario
+                            
                             stats[vId].drvs[dName].d += t.distance;
-                            stats[vId].drvs[dName].r += rSecs;
-                            stats[vId].drvs[dName].fTrip += (t.fuelUsed || 0);
+                            stats[vId].drvs[dName].r += secs;
+                            stats[vId].drvs[dName].fObj += (t.fuelUsed || 0);
                         }
                     });
 
@@ -127,8 +130,10 @@
                         const s = stats[dev.id];
                         if (!s) return;
 
-                        // Prioridad: 1. StatusData diferencia | 2. Trip.fuelUsed
-                        let ltrs = (fMap[dev.id] ? (fMap[dev.id].e - fMap[dev.id].s) : 0) || s.fTrip || 0;
+                        // Prioridad: 1. StatusData (Acumulado) | 2. Trip.fuelUsed
+                        let ltrs = fMap[dev.id] ? (fMap[dev.id].e - fMap[dev.id].s) : 0;
+                        if (ltrs <= 0) ltrs = s.fObj;
+
                         const gal = ltrs / 3.78541;
                         const eff = gal > 0 ? (s.d / gal).toFixed(2) : "0.00";
 
