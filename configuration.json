@@ -1,0 +1,16 @@
+{
+  "name": "Reporte Eficiencia Flota",
+  "supportEmail": "soporte@tuempresa.com",
+  "version": "1.0.0",
+  "items": [
+    {
+      "url": "https://TU_URL_AQUI/index.html",
+      "path": "FuelManagement/",
+      "menuName": {
+        "en": "Eficiencia y Ralentí",
+        "es": "Eficiencia y Ralentí"
+      },
+      "icon": "https://TU_URL_AQUI/icon.svg"
+    }
+  ]
+}
