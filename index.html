@@ -3,46 +3,32 @@
 <head>
     <meta charset="utf-8">
     <style>
-        /* Estilos Forzados para MyGeotab */
-        #geotab-addin-root { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 20px; background: #f4f7f9; }
-        .header-container { background: #254061; color: white; padding: 15px 20px; border-radius: 5px 5px 0 0; display: flex; justify-content: space-between; align-items: center; }
-        .filter-bar { background: white; padding: 15px; border: 1px solid #dce1e7; display: flex; gap: 15px; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; background: white; border-radius: 5px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        th { background: #f8f9fa; color: #254061; font-weight: 600; text-align: left; padding: 12px; border-bottom: 2px solid #dee2e6; }
-        td { padding: 10px 12px; border-bottom: 1px solid #eee; color: #333; }
-        
-        /* Filas de Vehículo */
-        .row-vehicle { background: #eef2f7 !important; font-weight: bold; cursor: default; }
-        .row-vehicle td { color: #1a2d45; border-left: 4px solid #254061; }
-        
-        /* Filas de Conductor */
-        .row-driver { background: #ffffff; font-size: 0.92em; }
-        .row-driver td:first-child { padding-left: 35px; color: #666; }
-        
-        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; transition: 0.2s; }
-        .btn-primary { background: #254061; color: white; }
-        .btn-success { background: #27ae60; color: white; margin-left: 10px; }
-        #loader { display: none; margin-left: 10px; color: #e67e22; font-weight: bold; }
-        
-        input[type="date"] { padding: 6px; border: 1px solid #ccc; border-radius: 4px; }
+        /* Estilos integrados para asegurar que Geotab los tome */
+        body { font-family: sans-serif; background-color: #f4f7f9; padding: 10px; }
+        .main-container { border: 1px solid #ccc; background: white; border-radius: 8px; overflow: hidden; }
+        .header { background: #254061; color: white; padding: 15px; font-size: 18px; font-weight: bold; }
+        .toolbar { padding: 15px; background: #eee; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f0f0f0; padding: 10px; text-align: left; border-bottom: 2px solid #ccc; color: #254061; }
+        td { padding: 8px 10px; border-bottom: 1px solid #eee; }
+        .row-v { background: #e9ecef; font-weight: bold; }
+        .row-d { font-size: 0.9em; color: #555; }
+        .btn { padding: 8px 15px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; }
+        .btn-blue { background: #254061; color: white; }
+        .btn-green { background: #28a745; color: white; }
     </style>
 </head>
 <body>
-    <div id="geotab-addin-root">
-        <div class="header-container">
-            <h2 style="margin:0;">Análisis de Rendimiento y Eficiencia</h2>
+    <div class="main-container">
+        <div class="header">Rendimiento y Eficiencia de Flota</div>
+        <div class="toolbar">
+            <label>Desde: <input type="date" id="dateStart"></label>
+            <label>Hasta: <input type="date" id="dateEnd"></label>
+            <button id="btnRun" class="btn btn-blue">Actualizar</button>
+            <button id="btnExport" class="btn btn-green">Excel</button>
+            <span id="msg" style="color: #d35400; font-weight: bold; display: none;">⌛ Cargando...</span>
         </div>
-
-        <div class="filter-bar">
-            <label>Inicio: <input type="date" id="dateStart"></label>
-            <label>Fin: <input type="date" id="dateEnd"></label>
-            <button id="btnRefresh" class="btn btn-primary">Generar Reporte</button>
-            <button id="btnExcel" class="btn btn-success">Exportar Excel</button>
-            <span id="loader">⚙️ Procesando...</span>
-        </div>
-
-        <table id="mainTable">
+        <table>
             <thead>
                 <tr>
                     <th>Vehículo / Conductor</th>
@@ -52,127 +38,106 @@
                     <th>Eficiencia (km/Gal)</th>
                 </tr>
             </thead>
-            <tbody id="tableBody">
-                <tr><td colspan="5" style="text-align:center; padding:30px; color:#999;">Seleccione un rango de fechas y presione "Generar Reporte"</td></tr>
-            </tbody>
+            <tbody id="resBody"></tbody>
         </table>
     </div>
 
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
-
     <script>
         geotab.addin.fleetEfficiency = () => {
             return {
                 initialize(api, state, callback) {
-                    document.getElementById("btnRefresh").addEventListener("click", () => this.execute(api));
-                    document.getElementById("btnExcel").addEventListener("click", () => this.exportExcel());
+                    // 3. CARGA INICIAL: Establecer fechas del último mes (Mes actual)
+                    const ahora = new Date();
+                    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+                    
+                    document.getElementById("dateStart").value = inicioMes.toISOString().split('T')[0];
+                    document.getElementById("dateEnd").value = ahora.toISOString().split('T')[0];
+
+                    document.getElementById("btnRun").addEventListener("click", () => this.getData(api));
+                    document.getElementById("btnExport").addEventListener("click", () => {
+                        const wb = XLSX.utils.table_to_book(document.querySelector("table"));
+                        XLSX.writeFile(wb, "Reporte_Eficiencia.xlsx");
+                    });
+
+                    // Ejecutar carga automática al abrir
+                    this.getData(api);
                     callback();
                 },
 
-                async execute(api) {
-                    const start = document.getElementById("dateStart").value;
-                    const end = document.getElementById("dateEnd").value;
-                    if (!start || !end) return alert("Seleccione fechas");
+                async getData(api) {
+                    const msg = document.getElementById("msg");
+                    msg.style.display = "inline";
+                    const from = new Date(document.getElementById("dateStart").value).toISOString();
+                    const to = new Date(document.getElementById("dateEnd").value).toISOString();
 
-                    const loader = document.getElementById("loader");
-                    loader.style.display = "inline";
-                    
                     try {
-                        const fromDate = new Date(start).toISOString();
-                        const toDate = new Date(end).toISOString();
-
-                        // 1. Llamadas en paralelo para velocidad
-                        const [devices, trips, fuelData] = await Promise.all([
+                        const [devices, trips, fuel] = await Promise.all([
                             api.call("Get", { typeName: "Device" }),
-                            api.call("Get", { typeName: "Trip", search: { fromDate, toDate } }),
+                            api.call("Get", { typeName: "Trip", search: { fromDate: from, toDate: to } }),
                             api.call("Get", { 
                                 typeName: "StatusData", 
-                                search: { fromDate, toDate, diagnosticSearch: { id: "DiagnosticFuelUsedId" } } 
+                                search: { fromDate: from, toDate: to, diagnosticSearch: { id: "DiagnosticFuelUsedId" } } 
                             })
                         ]);
 
-                        this.process(devices, trips, fuelData);
-                    } catch (e) {
-                        alert("Error de SDK: " + e.message);
-                    } finally {
-                        loader.style.display = "none";
-                    }
+                        this.render(devices, trips, fuel);
+                    } catch (e) { console.error(e); }
+                    finally { msg.style.display = "none"; }
                 },
 
-                process(devices, trips, fuelData) {
-                    const tbody = document.getElementById("tableBody");
-                    tbody.innerHTML = "";
+                render(devices, trips, fuel) {
+                    const body = document.getElementById("resBody");
+                    body.innerHTML = "";
 
-                    // Mapa de Combustible (Final - Inicial)
-                    const fuelMap = {};
-                    fuelData.forEach(f => {
-                        const id = f.device.id;
-                        if (!fuelMap[id]) fuelMap[id] = { first: f.data, last: f.data };
-                        if (f.data < fuelMap[id].first) fuelMap[id].first = f.data;
-                        if (f.data > fuelMap[id].last) fuelMap[id].last = f.data;
+                    // Lógica de combustible (Diferencia acumulada)
+                    const fMap = {};
+                    fuel.forEach(f => {
+                        if (!fMap[f.device.id]) fMap[f.device.id] = { f: f.data, l: f.data };
+                        if (f.data < fMap[f.device.id].f) fMap[f.device.id].f = f.data;
+                        if (f.data > fMap[f.device.id].l) fMap[f.device.id].l = f.data;
                     });
 
-                    // Mapa de Datos Agrupados
-                    const report = {};
+                    const stats = {};
                     trips.forEach(t => {
-                        const vId = t.device.id;
-                        const dName = t.driver.id === "NoDriverId" ? "Sin Conductor" : (t.driver.name || "Desconocido");
+                        const id = t.device.id;
+                        const drv = t.driver.id === "NoDriverId" ? "Sin Conductor" : (t.driver.name || "Desconocido");
+                        if (!stats[id]) stats[id] = { d: 0, i: 0, drvs: {} };
+                        if (!stats[id].drvs[drv]) stats[id].drvs[drv] = { d: 0, i: 0 };
+                        
+                        let iSecs = 0;
+                        if(typeof t.idlingDuration === "string") {
+                            const p = t.idlingDuration.split(':');
+                            iSecs = (+p[0] * 3600) + (+p[1] * 60) + (+p[2]);
+                        } else { iSecs = t.idlingDuration || 0; }
 
-                        if (!report[vId]) report[vId] = { dist: 0, idle: 0, drivers: {} };
-                        if (!report[vId].drivers[dName]) report[vId].drivers[dName] = { dist: 0, idle: 0 };
-
-                        const idleSecs = this.toSeconds(t.idlingDuration);
-                        report[vId].dist += t.distance || 0;
-                        report[vId].idle += idleSecs;
-                        report[vId].drivers[dName].dist += t.distance || 0;
-                        report[vId].drivers[dName].idle += idleSecs;
+                        stats[id].d += t.distance || 0;
+                        stats[id].i += iSecs;
+                        stats[id].drvs[drv].d += t.distance || 0;
+                        stats[id].drvs[drv].i += iSecs;
                     });
 
-                    // Renderizado
                     devices.forEach(dev => {
-                        const data = report[dev.id];
-                        if (!data) return;
+                        const s = stats[dev.id];
+                        if (!s) return;
 
-                        const liters = fuelMap[dev.id] ? (fuelMap[dev.id].last - fuelMap[dev.id].first) : 0;
-                        const galones = liters / 3.78541;
-                        const eficiencia = galones > 0 ? (data.dist / galones).toFixed(2) : "0.00";
+                        const gal = fMap[dev.id] ? (fMap[dev.id].l - fMap[dev.id].f) / 3.785 : 0;
+                        const eff = gal > 0 ? (s.d / gal).toFixed(2) : "0.00";
 
-                        // Fila Vehículo
-                        tbody.innerHTML += `
-                            <tr class="row-vehicle">
-                                <td>🚚 ${dev.name}</td>
-                                <td>${data.dist.toFixed(2)}</td>
-                                <td>${galones.toFixed(2)}</td>
-                                <td>${(data.idle / 3600).toFixed(2)}</td>
-                                <td>${eficiencia}</td>
+                        body.innerHTML += `<tr class="row-v">
+                            <td>🚚 ${dev.name}</td><td>${s.d.toFixed(1)}</td><td>${gal.toFixed(1)}</td>
+                            <td>${(s.i / 3600).toFixed(1)}</td><td>${eff}</td>
+                        </tr>`;
+
+                        Object.keys(s.drvs).forEach(dName => {
+                            const d = s.drvs[dName];
+                            const dGal = gal * (d.d / s.d);
+                            body.innerHTML += `<tr class="row-d">
+                                <td style="padding-left:30px;">👤 ${dName}</td><td>${d.d.toFixed(1)}</td>
+                                <td>${dGal.toFixed(1)}</td><td>${(d.i / 3600).toFixed(1)}</td><td>--</td>
                             </tr>`;
-
-                        // Filas Conductores
-                        Object.entries(data.drivers).forEach(([name, dData]) => {
-                            const dGal = galones * (dData.dist / data.dist);
-                            const dEff = dGal > 0 ? (dData.dist / dGal).toFixed(2) : "0.00";
-                            tbody.innerHTML += `
-                                <tr class="row-driver">
-                                    <td>👤 ${name}</td>
-                                    <td>${dData.dist.toFixed(2)}</td>
-                                    <td>${dGal.toFixed(2)}</td>
-                                    <td>${(dData.idle / 3600).toFixed(2)}</td>
-                                    <td>${dEff}</td>
-                                </tr>`;
                         });
                     });
-                },
-
-                toSeconds(val) {
-                    if (!val) return 0;
-                    if (typeof val === "number") return val;
-                    const p = val.split(':');
-                    return p.length === 3 ? (+p[0] * 3600 + +p[1] * 60 + +p[2]) : 0;
-                },
-
-                exportExcel() {
-                    const wb = XLSX.utils.table_to_book(document.getElementById("mainTable"));
-                    XLSX.writeFile(wb, "Reporte_Eficiencia.xlsx");
                 }
             };
         };
