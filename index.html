@@ -2,33 +2,37 @@
 <html>
 <head>
     <meta charset="utf-8">
+    <title>Reporte Eficiencia Pro</title>
 </head>
-<body style="font-family: sans-serif; background-color: #f4f7f9; margin: 0; padding: 20px;">
-    <div style="max-width: 1200px; margin: auto; background: white; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); overflow: hidden;">
+<body style="font-family: 'Segoe UI', Tahoma, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px;">
+
+    <div style="max-width: 1200px; margin: auto; background: white; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); overflow: hidden;">
         
-        <div style="background: #c0392b; color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center;">
-            <h2 style="margin: 0; font-size: 20px;">🔥 REPORTE V22 - FORZADO</h2>
-            <div id="loader" style="display:none; background: #000; padding: 5px 15px; border-radius: 20px; font-size: 12px;">PROCESANDO...</div>
+        <div style="background: #254061; color: white; padding: 20px 25px; display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="margin: 0; font-size: 20px; font-weight: 500;">📊 Rendimiento y Eficiencia de Flota</h2>
+            <div id="loader" style="display:none; background: #e67e22; padding: 5px 15px; border-radius: 20px; font-size: 12px; font-weight: bold;">SINCRONIZANDO...</div>
         </div>
 
         <div style="padding: 15px 25px; background: #fafafa; border-bottom: 1px solid #eee; display: flex; gap: 15px; align-items: center;">
-            <input type="date" id="dateStart" style="padding: 6px;">
-            <input type="date" id="dateEnd" style="padding: 6px;">
-            <button id="btnRun" style="background: #c0392b; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold;">ACTUALIZAR</button>
-            <span id="debug" style="font-size: 13px; color: #c0392b; font-weight: bold;"></span>
+            <label style="font-size: 13px; font-weight: bold;">Desde: <input type="date" id="dateStart" style="padding: 6px; border: 1px solid #ccc; border-radius: 4px;"></label>
+            <label style="font-size: 13px; font-weight: bold;">Hasta: <input type="date" id="dateEnd" style="padding: 6px; border: 1px solid #ccc; border-radius: 4px;"></label>
+            <button id="btnRun" style="background: #254061; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold;">ACTUALIZAR</button>
+            <span id="fuelStatus" style="font-size: 12px; color: #d35400; font-weight: bold;"></span>
         </div>
 
-        <table style="width: 100%; border-collapse: collapse;">
+        <table style="width: 100%; border-collapse: collapse; background: white;">
             <thead>
                 <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
-                    <th style="padding: 15px; text-align: left;">VEHÍCULO / CONDUCTOR</th>
-                    <th style="padding: 15px; text-align: center;">KM</th>
-                    <th style="padding: 15px; text-align: center;">GAL</th>
-                    <th style="padding: 15px; text-align: center;">RALENTÍ</th>
-                    <th style="padding: 15px; text-align: center;">EFICIENCIA</th>
+                    <th style="padding: 15px; text-align: left; font-size: 13px; color: #333;">VEHÍCULO / CONDUCTOR</th>
+                    <th style="padding: 15px; text-align: center; font-size: 13px; color: #333;">DISTANCIA (KM)</th>
+                    <th style="padding: 15px; text-align: center; font-size: 13px; color: #333;">COMBUSTIBLE (GAL)</th>
+                    <th style="padding: 15px; text-align: center; font-size: 13px; color: #333;">RALENTÍ (HRS)</th>
+                    <th style="padding: 15px; text-align: center; font-size: 13px; color: #333;">EFICIENCIA</th>
                 </tr>
             </thead>
-            <tbody id="resBody"></tbody>
+            <tbody id="resBody">
+                <tr><td colspan="5" style="padding: 40px; text-align: center; color: #999;">Cargando reporte...</td></tr>
+            </tbody>
         </table>
     </div>
 
@@ -39,42 +43,59 @@
                     const now = new Date();
                     document.getElementById("dateStart").value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
                     document.getElementById("dateEnd").value = now.toISOString().split('T')[0];
-                    document.getElementById("btnRun").addEventListener("click", () => this.fetch(api));
-                    this.fetch(api);
+                    document.getElementById("btnRun").addEventListener("click", () => this.fetchData(api));
+                    this.fetchData(api);
                     callback();
                 },
 
-                async fetch(api) {
-                    document.getElementById("loader").style.display = "block";
+                async fetchData(api) {
+                    const loader = document.getElementById("loader");
+                    const status = document.getElementById("fuelStatus");
+                    loader.style.display = "block";
+                    status.innerText = "Buscando diagnóstico...";
+                    
                     const from = new Date(document.getElementById("dateStart").value).toISOString();
                     const to = new Date(document.getElementById("dateEnd").value).toISOString();
 
                     try {
+                        // 1. Obtener datos base
                         const [devices, users, trips] = await Promise.all([
                             api.call("Get", { typeName: "Device" }),
                             api.call("Get", { typeName: "User" }),
                             api.call("Get", { typeName: "Trip", search: { fromDate: from, toDate: to } })
                         ]);
 
-                        let fuelData = [];
-                        try {
-                            fuelData = await api.call("Get", { 
-                                typeName: "StatusData", 
-                                search: { fromDate: from, toDate: to, diagnosticSearch: { id: "DiagnosticFuelUsedId" } } 
-                            });
-                        } catch (e) { console.error("Error motor"); }
+                        // 2. RASTREADOR: Buscar el ID real del diagnóstico de combustible por nombre
+                        const diagnostics = await api.call("Get", {
+                            typeName: "Diagnostic",
+                            search: { name: "%combustible%utilizado%" }
+                        });
 
-                        document.getElementById("debug").innerText = "Señales: " + fuelData.length;
+                        let fuelData = [];
+                        if (diagnostics.length > 0) {
+                            const diagId = diagnostics[0].id;
+                            status.innerText = "Leyendo motor...";
+                            fuelData = await api.call("Get", {
+                                typeName: "StatusData",
+                                search: { fromDate: from, toDate: to, diagnosticSearch: { id: diagId } }
+                            });
+                        }
+
+                        status.innerText = fuelData.length > 0 ? "Datos encontrados" : "Sin acceso a motor (Plan GO)";
                         this.render(devices, users, trips, fuelData);
-                    } catch (e) { console.error(e); }
-                    finally { document.getElementById("loader").style.display = "none"; }
+                    } catch (e) {
+                        console.error(e);
+                        status.innerText = "Error de conexión";
+                    } finally {
+                        loader.style.display = "none";
+                    }
                 },
 
                 render(devices, users, trips, fuel) {
                     const body = document.getElementById("resBody");
                     body.innerHTML = "";
                     const uMap = {};
-                    users.forEach(u => { uMap[u.id] = (u.firstName + " " + u.lastName).trim() || u.name; });
+                    users.forEach(u => { uMap[u.id] = ((u.firstName || "") + " " + (u.lastName || "")).trim() || u.name; });
 
                     const fMap = {};
                     fuel.forEach(f => {
@@ -88,7 +109,9 @@
                     const stats = {};
                     trips.forEach(t => {
                         const vId = t.device.id;
-                        const dName = (t.driver && uMap[t.driver.id]) ? uMap[t.driver.id] : "Desconocido";
+                        const dId = t.driver ? t.driver.id : "NoDriverId";
+                        const dName = (dId === "NoDriverId" || !uMap[dId]) ? "Desconocido" : uMap[dId];
+
                         if (t.distance > 0.1) {
                             if (!stats[vId]) stats[vId] = { d: 0, r: 0, fT: 0, drvs: {} };
                             if (!stats[vId].drvs[dName]) stats[vId].drvs[dName] = { d: 0, r: 0, fT: 0 };
@@ -112,28 +135,31 @@
                     devices.forEach(dev => {
                         const s = stats[dev.id];
                         if (!s) return;
-                        let ltrs = (fMap[dev.id] ? (fMap[dev.id].e - fMap[dev.id].s) : 0) || s.fT || 0;
-                        const gal = ltrs / 3.785;
+
+                        let liters = (fMap[dev.id] ? (fMap[dev.id].e - fMap[dev.id].s) : 0) || s.fT || 0;
+                        const gal = liters / 3.78541;
                         const eff = gal > 0 ? (s.d / gal).toFixed(2) : "0.00";
 
-                        body.innerHTML += `<tr style="background: #fdf2f2; font-weight: bold; border-left: 5px solid #c0392b;">
-                            <td style="padding: 12px;">🚚 ${dev.name}</td>
-                            <td style="text-align:center;">${s.d.toFixed(1)}</td>
-                            <td style="text-align:center;">${gal.toFixed(1)}</td>
-                            <td style="text-align:center;">${(s.r/3600).toFixed(1)}</td>
-                            <td style="text-align:center;">${eff}</td>
-                        </tr>`;
+                        body.innerHTML += `
+                            <tr style="background: #eef2f7; font-weight: bold; border-left: 5px solid #254061; border-bottom: 1px solid #dee2e6;">
+                                <td style="padding: 15px;">🚚 ${dev.name}</td>
+                                <td style="text-align:center;">${s.d.toFixed(1)}</td>
+                                <td style="text-align:center; color: #254061;">${gal.toFixed(1)}</td>
+                                <td style="text-align:center;">${(s.r / 3600).toFixed(1)}</td>
+                                <td style="text-align:center; color: #27ae60;">${eff} km/G</td>
+                            </tr>`;
 
                         Object.keys(s.drvs).forEach(name => {
                             const d = s.drvs[name];
                             const dGal = s.d > 0 ? gal * (d.d / s.d) : 0;
-                            body.innerHTML += `<tr style="color: #666; font-size: 13px;">
-                                <td style="padding: 8px 8px 8px 45px;">👤 ${name}</td>
-                                <td style="text-align:center;">${d.d.toFixed(1)}</td>
-                                <td style="text-align:center;">${dGal.toFixed(1)}</td>
-                                <td style="text-align:center;">${(d.r/3600).toFixed(1)}</td>
-                                <td style="text-align:center;">--</td>
-                            </tr>`;
+                            body.innerHTML += `
+                                <tr style="background: white; border-bottom: 1px solid #eee; color: #555; font-size: 13px;">
+                                    <td style="padding: 10px 10px 10px 45px;">👤 ${name}</td>
+                                    <td style="text-align:center;">${d.d.toFixed(1)}</td>
+                                    <td style="text-align:center;">${dGal.toFixed(1)}</td>
+                                    <td style="text-align:center;">${(d.r / 3600).toFixed(1)}</td>
+                                    <td style="text-align:center;">--</td>
+                                </tr>`;
                         });
                     });
                 }
