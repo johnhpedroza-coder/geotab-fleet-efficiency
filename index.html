@@ -2,43 +2,51 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Add-in Eficiencia</title>
+    <title>Reporte Eficiencia Geotab</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; background: #f4f7f9; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .controls { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; }
-        th { background: #254061; color: white; padding: 12px; text-align: left; }
-        td { padding: 10px; border-bottom: 1px solid #ddd; }
-        .driver-row { background: #f9f9f9; font-style: italic; color: #555; }
-        .btn { padding: 10px 20px; cursor: pointer; border: none; border-radius: 4px; background: #254061; color: white; }
-        #loading { color: #e67e22; font-weight: bold; margin-top: 10px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-color: #f5f7f9; color: #333; }
+        .header { background: #254061; color: white; padding: 20px; border-radius: 8px 8px 0 0; margin-bottom: 0; }
+        .controls { background: white; padding: 20px; border: 1px solid #dce1e7; border-bottom: 3px solid #254061; display: flex; gap: 15px; align-items: center; }
+        .btn { background: #254061; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn:hover { background: #1a2d45; }
+        .btn-export { background: #27ae60; }
+        table { width: 100%; border-collapse: collapse; background: white; margin-top: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        th { background: #f8f9fa; color: #254061; padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6; }
+        td { padding: 12px; border-bottom: 1px solid #eee; }
+        .veh-row { background: #eef2f7; font-weight: bold; color: #2c3e50; }
+        .driver-row { color: #666; font-size: 0.95em; }
+        .driver-row td:first-child { padding-left: 40px; }
+        #loading { display: none; color: #d35400; font-weight: bold; margin-left: 15px; }
+        .unit { font-size: 0.8em; color: #888; margin-left: 4px; }
     </style>
 </head>
 <body>
+
     <div class="header">
-        <h2>Análisis de Rendimiento y Ralentí</h2>
+        <h1 style="margin:0; font-size: 1.5em;">📊 Rendimiento y Eficiencia de Flota</h1>
     </div>
 
     <div class="controls">
-        <label>Inicio: <input type="date" id="dateStart"></label>
-        <label>Fin: <input type="date" id="dateEnd"></label>
+        <label>Desde: <input type="date" id="dateStart"></label>
+        <label>Hasta: <input type="date" id="dateEnd"></label>
         <button id="btnRun" class="btn">Generar Reporte</button>
-        <div id="loading" style="display:none;">Consultando SDK de Geotab...</div>
+        <button id="btnExport" class="btn btn-export">Exportar Excel</button>
+        <span id="loading">⌛ Procesando datos...</span>
     </div>
 
     <table id="reportTable">
         <thead>
             <tr>
                 <th>Vehículo / Conductor</th>
-                <th>Distancia (km)</th>
-                <th>Combustible (Gal)</th>
-                <th>Ralentí (Horas)</th>
-                <th>Eficiencia (km/Gal)</th>
+                <th>Distancia <span class="unit">(km)</span></th>
+                <th>Combustible <span class="unit">(Gal)</span></th>
+                <th>Ralentí <span class="unit">(Horas)</span></th>
+                <th>Eficiencia <span class="unit">(km/Gal)</span></th>
             </tr>
         </thead>
         <tbody id="reportContent">
-            </tbody>
+            <tr><td colspan="5" style="text-align:center;">Seleccione un rango y presione Generar Reporte</td></tr>
+        </tbody>
     </table>
 
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
@@ -47,65 +55,134 @@
         geotab.addin.fleetEfficiency = () => {
             return {
                 initialize(api, state, callback) {
-                    document.getElementById("btnRun").addEventListener("click", () => {
-                        this.processData(api);
-                    });
+                    document.getElementById("btnRun").addEventListener("click", () => this.processData(api));
+                    document.getElementById("btnExport").addEventListener("click", () => this.exportToExcel());
                     callback();
                 },
 
                 async processData(api) {
                     const start = document.getElementById("dateStart").value;
                     const end = document.getElementById("dateEnd").value;
-                    if (!start || !end) return alert("Selecciona fechas");
+                    if (!start || !end) return alert("Por favor seleccione ambas fechas.");
 
-                    document.getElementById("loading").style.display = "block";
+                    const loader = document.getElementById("loading");
+                    loader.style.display = "inline";
 
                     try {
-                        // 1. Obtener Viajes (Trips)
+                        const fromDate = new Date(start).toISOString();
+                        const toDate = new Date(end).toISOString();
+
+                        // 1. Obtener Viajes (Trips) - Incluye Distancia, Ralentí y Conductores
                         const trips = await api.call("Get", {
                             typeName: "Trip",
-                            search: { fromDate: start, toDate: end }
+                            search: { fromDate, toDate }
                         });
 
-                        // 2. Obtener Dispositivos para nombres
+                        // 2. Obtener Dispositivos
                         const devices = await api.call("Get", { typeName: "Device" });
 
-                        this.render(trips, devices);
+                        // 3. Obtener Datos de Combustible (Diagnóstico de combustible total usado)
+                        const fuelStatus = await api.call("Get", {
+                            typeName: "StatusData",
+                            search: {
+                                fromDate,
+                                toDate,
+                                diagnosticSearch: { id: "DiagnosticFuelUsedId" }
+                            }
+                        });
+
+                        this.calculateAndRender(trips, devices, fuelStatus);
                     } catch (err) {
-                        alert("Error: " + err.message);
+                        console.error(err);
+                        alert("Error al obtener datos: " + err.message);
                     } finally {
-                        document.getElementById("loading").style.display = "none";
+                        loader.style.display = "none";
                     }
                 },
 
-                render(trips, devices) {
+                // Lógica de parsing para tiempo (evita el NaN)
+                parseDuration(val) {
+                    if (!val) return 0;
+                    if (typeof val === "number") return val; // Segundos
+                    if (typeof val === "string" && val.includes(":")) {
+                        const p = val.split(':');
+                        return (+p[0]) * 3600 + (+p[1]) * 60 + (+p[2]);
+                    }
+                    return 0;
+                },
+
+                calculateAndRender(trips, devices, fuelStatus) {
                     const content = document.getElementById("reportContent");
                     content.innerHTML = "";
+                    const fleetMap = {};
 
-                    // Agrupar por vehículo
-                    const data = trips.reduce((acc, trip) => {
-                        const dId = trip.device.id;
-                        if (!acc[dId]) acc[dId] = { name: "", dist: 0, idle: 0, fuel: 0 };
-                        acc[dId].dist += trip.distance || 0;
-                        acc[dId].idle += (trip.idlingDuration || 0); // Manejar duración
-                        return acc;
-                    }, {});
+                    // Mapear combustible por dispositivo (Diferencia Final - Inicial)
+                    const fuelByDevice = {};
+                    fuelStatus.forEach(entry => {
+                        const dId = entry.device.id;
+                        if (!fuelByDevice[dId]) fuelByDevice[dId] = { min: entry.data, max: entry.data };
+                        if (entry.data < fuelByDevice[dId].min) fuelByDevice[dId].min = entry.data;
+                        if (entry.data > fuelByDevice[dId].max) fuelByDevice[dId].max = entry.data;
+                    });
 
-                    devices.forEach(d => {
-                        if (data[d.id]) {
-                            const v = data[d.id];
-                            const idleHours = (new Date(v.idle).getTime() / 3600000).toFixed(2);
-                            
-                            let row = `<tr>
-                                <td><strong>${d.name}</strong></td>
-                                <td>${v.dist.toFixed(2)}</td>
-                                <td>TBD*</td>
-                                <td>${idleHours} h</td>
-                                <td>--</td>
+                    // Procesar Viajes y agrupar Conductores
+                    trips.forEach(t => {
+                        const vId = t.device.id;
+                        const dName = t.driver.id === "NoDriverId" ? "Sin Conductor" : (t.driver.name || "Conductor Desconocido");
+
+                        if (!fleetMap[vId]) fleetMap[vId] = { dist: 0, idle: 0, drivers: {} };
+                        
+                        const idleSecs = this.parseDuration(t.idlingDuration);
+                        fleetMap[vId].dist += t.distance || 0;
+                        fleetMap[vId].idle += idleSecs;
+
+                        if (!fleetMap[vId].drivers[dName]) fleetMap[vId].drivers[dName] = { dist: 0, idle: 0 };
+                        fleetMap[vId].drivers[dName].dist += t.distance || 0;
+                        fleetMap[vId].drivers[dName].idle += idleSecs;
+                    });
+
+                    // Renderizar Tabla
+                    devices.forEach(dev => {
+                        const data = fleetMap[dev.id];
+                        if (!data) return;
+
+                        // Cálculo combustible (Geotab entrega Litros por defecto, convertimos a Galones si se requiere / 3.785)
+                        const fuelLiters = fuelByDevice[dev.id] ? (fuelByDevice[dev.id].max - fuelByDevice[dev.id].min) : 0;
+                        const fuelGal = fuelLiters / 3.78541;
+                        const efficiency = fuelGal > 0 ? (data.dist / fuelGal).toFixed(2) : "0.00";
+
+                        // Fila Vehículo
+                        content.innerHTML += `
+                            <tr class="veh-row">
+                                <td>🚚 ${dev.name}</td>
+                                <td>${data.dist.toFixed(2)}</td>
+                                <td>${fuelGal.toFixed(2)}</td>
+                                <td>${(data.idle / 3600).toFixed(2)}</td>
+                                <td>${efficiency}</td>
                             </tr>`;
-                            content.innerHTML += row;
+
+                        // Filas Conductores
+                        for (const [driverName, dData] of Object.entries(data.drivers)) {
+                            // Prorrateo de combustible por distancia para el conductor
+                            const dFuel = fuelGal * (dData.dist / data.dist);
+                            const dEff = dFuel > 0 ? (dData.dist / dFuel).toFixed(2) : "0.00";
+
+                            content.innerHTML += `
+                                <tr class="driver-row">
+                                    <td>👤 ${driverName}</td>
+                                    <td>${dData.dist.toFixed(2)}</td>
+                                    <td>${dFuel.toFixed(2)}</td>
+                                    <td>${(dData.idle / 3600).toFixed(2)}</td>
+                                    <td>${dEff}</td>
+                                </tr>`;
                         }
                     });
+                },
+
+                exportToExcel() {
+                    const table = document.getElementById("reportTable");
+                    const wb = XLSX.utils.table_to_book(table, { sheet: "Eficiencia" });
+                    XLSX.writeFile(wb, "Reporte_Eficiencia_Flota.xlsx");
                 }
             };
         };
